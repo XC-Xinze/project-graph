@@ -34,11 +34,13 @@ export class TagManager {
       this.project.tags.push(uuid);
       this.tagSet.add(uuid);
     }
+    this.project.markContentChanged();
   }
 
   addTag(uuid: string) {
     this.project.tags.push(uuid);
     this.tagSet.add(uuid);
+    this.project.markContentChanged();
   }
 
   removeTag(uuid: string) {
@@ -46,6 +48,7 @@ export class TagManager {
     if (index !== -1) {
       this.project.tags.splice(index, 1);
       this.tagSet.delete(uuid);
+      this.project.markContentChanged();
     }
   }
 
@@ -67,6 +70,7 @@ export class TagManager {
       if (!this.project.stage.some((stageObject) => stageObject.uuid === uuid)) {
         this.project.tags.splice(this.project.tags.indexOf(uuid), 1);
         this.tagSet.delete(uuid);
+        this.project.markContentChanged();
       }
     }
   }
@@ -77,6 +81,7 @@ export class TagManager {
       const temp = this.project.tags[index - 1];
       this.project.tags[index - 1] = uuid;
       this.project.tags[index] = temp;
+      this.project.markContentChanged();
     }
   }
 
@@ -86,6 +91,7 @@ export class TagManager {
       const temp = this.project.tags[index + 1];
       this.project.tags[index + 1] = uuid;
       this.project.tags[index] = temp;
+      this.project.markContentChanged();
     }
   }
 
@@ -116,7 +122,7 @@ export class TagManager {
       .filter((stageObject): stageObject is StageObject => stageObject !== undefined);
 
     for (const tagObject of tagObjectList) {
-      let title = "";
+      let title: string;
       let colorItem: [number, number, number, number] = [0, 0, 0, 0];
       if (tagObject instanceof TextNode) {
         title = tagObject.text;

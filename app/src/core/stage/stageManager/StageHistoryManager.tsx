@@ -56,6 +56,7 @@ class HistoryManagerTimeEfficient extends HistoryManagerAbs {
       this.currentIndex--;
     }
 
+    this.project.markContentChanged();
     this.project.projectState = ProjectState.Unsaved;
   }
 
@@ -276,6 +277,7 @@ class HistorymanagerMemoryEfficient extends HistoryManagerAbs {
     if (this.currentIndex >= this.deltas.length) {
       this.currentIndex = this.deltas.length - 1;
     }
+    this.project.markContentChanged();
     this.project.projectState = ProjectState.Unsaved;
   }
 

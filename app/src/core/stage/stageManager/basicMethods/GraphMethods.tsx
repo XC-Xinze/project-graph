@@ -1,6 +1,7 @@
 import { Project, service } from "@/core/Project";
 import { ConnectableEntity } from "@/core/stage/stageObject/abstract/ConnectableEntity";
 import { Edge } from "@/core/stage/stageObject/association/Edge";
+import { LineEdge } from "@/core/stage/stageObject/association/LineEdge";
 import { MultiTargetUndirectedEdge } from "../../stageObject/association/MutiTargetUndirectedEdge";
 import { TextNode } from "../../stageObject/entity/TextNode";
 
@@ -30,6 +31,53 @@ export interface TreeIssue {
 @service("graphMethods")
 export class GraphMethods {
   constructor(protected readonly project: Project) {}
+
+  private adjacencyRevision = -1;
+  private outgoingLineEdges = new Map<string, LineEdge[]>();
+  private incomingLineEdges = new Map<string, LineEdge[]>();
+  private outgoingEdges = new Map<string, Edge[]>();
+  private incomingEdges = new Map<string, Edge[]>();
+
+  private ensureAdjacency() {
+    const revision = this.project.stageManager.revision;
+    if (revision === this.adjacencyRevision) {
+      return;
+    }
+
+    this.adjacencyRevision = revision;
+    this.outgoingLineEdges = new Map();
+    this.incomingLineEdges = new Map();
+    this.outgoingEdges = new Map();
+    this.incomingEdges = new Map();
+
+    for (const edge of this.project.stageManager.getLineEdges()) {
+      this.pushEdge(this.outgoingLineEdges, edge.source.uuid, edge);
+      this.pushEdge(this.incomingLineEdges, edge.target.uuid, edge);
+    }
+    for (const edge of this.project.stageManager.getEdges()) {
+      this.pushEdge(this.outgoingEdges, edge.source.uuid, edge);
+      this.pushEdge(this.incomingEdges, edge.target.uuid, edge);
+    }
+  }
+
+  private pushEdge<T extends Edge>(map: Map<string, T[]>, uuid: string, edge: T) {
+    const edges = map.get(uuid);
+    if (edges) {
+      edges.push(edge);
+    } else {
+      map.set(uuid, [edge]);
+    }
+  }
+
+  private getOutgoingLineEdges(node: ConnectableEntity): LineEdge[] {
+    this.ensureAdjacency();
+    return this.outgoingLineEdges.get(node.uuid) ?? [];
+  }
+
+  private getIncomingLineEdges(node: ConnectableEntity): LineEdge[] {
+    this.ensureAdjacency();
+    return this.incomingLineEdges.get(node.uuid) ?? [];
+  }
 
   isTree(node: ConnectableEntity, skipDashed = false): boolean {
     const dfs = (node: ConnectableEntity, visited: ConnectableEntity[]): boolean => {
@@ -214,11 +262,9 @@ export class GraphMethods {
   /** 获取节点连接的子节点数组，未排除自环 */
   nodeChildrenArray(node: ConnectableEntity, skipDashed = false): ConnectableEntity[] {
     const res: ConnectableEntity[] = [];
-    for (const edge of this.project.stageManager.getLineEdges()) {
+    for (const edge of this.getOutgoingLineEdges(node)) {
       if (skipDashed && edge.lineType === "dashed") continue;
-      if (edge.source.uuid === node.uuid) {
-        res.push(edge.target);
-      }
+      res.push(edge.target);
     }
     return res;
   }
@@ -229,9 +275,9 @@ export class GraphMethods {
    */
   nodeParentArray(node: ConnectableEntity, skipDashed = false): ConnectableEntity[] {
     const res: ConnectableEntity[] = [];
-    for (const edge of this.project.stageManager.getLineEdges()) {
+    for (const edge of this.getIncomingLineEdges(node)) {
       if (skipDashed && edge.lineType === "dashed") continue;
-      if (edge.target.uuid === node.uuid && edge.target.uuid !== edge.source.uuid) {
+      if (edge.target.uuid !== edge.source.uuid) {
         res.push(edge.source);
       }
     }
@@ -239,11 +285,11 @@ export class GraphMethods {
   }
 
   edgeChildrenArray(node: ConnectableEntity): Edge[] {
-    return this.project.stageManager.getLineEdges().filter((edge) => edge.source.uuid === node.uuid);
+    return this.getOutgoingLineEdges(node);
   }
 
   edgeParentArray(node: ConnectableEntity): Edge[] {
-    return this.project.stageManager.getLineEdges().filter((edge) => edge.target.uuid === node.uuid);
+    return this.getIncomingLineEdges(node);
   }
 
   /**
@@ -304,8 +350,8 @@ export class GraphMethods {
   }
 
   isConnected(node: ConnectableEntity, target: ConnectableEntity): boolean {
-    for (const edge of this.project.stageManager.getLineEdges()) {
-      if (edge.source === node && edge.target === target) {
+    for (const edge of this.getOutgoingLineEdges(node)) {
+      if (edge.target === target) {
         return true;
       }
     }
@@ -354,8 +400,8 @@ export class GraphMethods {
    */
   getOneStepSuccessorSet(node: ConnectableEntity): ConnectableEntity[] {
     const result: ConnectableEntity[] = []; // 存储可达节点的结果集
-    for (const edge of this.project.stageManager.getLineEdges()) {
-      if (edge.source === node && edge.target.uuid !== edge.source.uuid) {
+    for (const edge of this.getOutgoingLineEdges(node)) {
+      if (edge.target.uuid !== edge.source.uuid) {
         result.push(edge.target);
       }
     }
@@ -364,8 +410,9 @@ export class GraphMethods {
 
   getEdgesBetween(node1: ConnectableEntity, node2: ConnectableEntity): Edge[] {
     const result: Edge[] = []; // 存储连接两个节点的边的结果集
-    for (const edge of this.project.stageManager.getEdges()) {
-      if (edge.source === node1 && edge.target === node2) {
+    this.ensureAdjacency();
+    for (const edge of this.outgoingEdges.get(node1.uuid) ?? []) {
+      if (edge.target === node2) {
         result.push(edge);
       }
     }
@@ -373,8 +420,9 @@ export class GraphMethods {
   }
 
   getEdgeFromTwoEntity(fromNode: ConnectableEntity, toNode: ConnectableEntity): Edge | null {
-    for (const edge of this.project.stageManager.getEdges()) {
-      if (edge.source === fromNode && edge.target === toNode) {
+    this.ensureAdjacency();
+    for (const edge of this.outgoingEdges.get(fromNode.uuid) ?? []) {
+      if (edge.target === toNode) {
         return edge;
       }
     }
@@ -405,13 +453,8 @@ export class GraphMethods {
    * @returns 节点的所有出边数组
    */
   public getOutgoingEdges(node: ConnectableEntity): Edge[] {
-    const result: Edge[] = [];
-    for (const edge of this.project.stageManager.getEdges()) {
-      if (edge.source === node) {
-        result.push(edge);
-      }
-    }
-    return result;
+    this.ensureAdjacency();
+    return this.outgoingEdges.get(node.uuid) ?? [];
   }
 
   /**
@@ -420,13 +463,8 @@ export class GraphMethods {
    * @returns 节点的所有入边数组
    */
   public getIncomingEdges(node: ConnectableEntity): Edge[] {
-    const result: Edge[] = [];
-    for (const edge of this.project.stageManager.getEdges()) {
-      if (edge.target === node) {
-        result.push(edge);
-      }
-    }
-    return result;
+    this.ensureAdjacency();
+    return this.incomingEdges.get(node.uuid) ?? [];
   }
 
   /**

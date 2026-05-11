@@ -57,59 +57,131 @@ export type ChildCameraData = {
 export class StageManager {
   constructor(private readonly project: Project) {}
 
-  /**
-   * TODO: 这个get方法在2.0从O(1)变成O(N)了，可能是引起卡顿的原因，后面待排查
-   * @param uuid
-   * @returns
-   */
+  private indexedStage: StageObject[] | null = null;
+  private indexedStageLength = -1;
+  private indexRevision = 0;
+  private uuidIndex = new Map<string, StageObject>();
+  private textNodes: TextNode[] = [];
+  private connectableEntities: ConnectableEntity[] = [];
+  private sections: Section[] = [];
+  private imageNodes: ImageNode[] = [];
+  private connectPoints: ConnectPoint[] = [];
+  private urlNodes: UrlNode[] = [];
+  private penStrokes: PenStroke[] = [];
+  private svgNodes: SvgNode[] = [];
+  private latexNodes: LatexNode[] = [];
+  private entities: Entity[] = [];
+  private associations: Association[] = [];
+  private edges: Edge[] = [];
+  private lineEdges: LineEdge[] = [];
+  private crEdges: CubicCatmullRomSplineEdge[] = [];
+
+  get revision(): number {
+    this.ensureIndex();
+    return this.indexRevision;
+  }
+
+  private invalidateIndex() {
+    this.indexedStage = null;
+    this.indexedStageLength = -1;
+    this.indexRevision++;
+  }
+
+  private ensureIndex() {
+    if (this.indexedStage === this.project.stage && this.indexedStageLength === this.project.stage.length) {
+      return;
+    }
+
+    this.indexedStage = this.project.stage;
+    this.indexedStageLength = this.project.stage.length;
+    this.indexRevision++;
+    this.uuidIndex = new Map();
+    this.textNodes = [];
+    this.connectableEntities = [];
+    this.sections = [];
+    this.imageNodes = [];
+    this.connectPoints = [];
+    this.urlNodes = [];
+    this.penStrokes = [];
+    this.svgNodes = [];
+    this.latexNodes = [];
+    this.entities = [];
+    this.associations = [];
+    this.edges = [];
+    this.lineEdges = [];
+    this.crEdges = [];
+
+    for (const node of this.project.stage) {
+      this.uuidIndex.set(node.uuid, node);
+      if (node instanceof TextNode) this.textNodes.push(node);
+      if (node instanceof ImageNode) this.imageNodes.push(node);
+      if (node instanceof ConnectPoint) this.connectPoints.push(node);
+      if (node instanceof UrlNode) this.urlNodes.push(node);
+      if (node instanceof PenStroke) this.penStrokes.push(node);
+      if (node instanceof SvgNode) this.svgNodes.push(node);
+      if (node instanceof LatexNode) this.latexNodes.push(node);
+      if (node instanceof Section) this.sections.push(node);
+      if (node instanceof Entity) this.entities.push(node);
+      if (node instanceof Association) this.associations.push(node);
+      if (node instanceof Edge) this.edges.push(node);
+      if (node instanceof LineEdge) this.lineEdges.push(node);
+      if (node instanceof CubicCatmullRomSplineEdge) this.crEdges.push(node);
+      if (node instanceof ConnectableEntity && !(node instanceof ImageNode && node.isBackground)) {
+        this.connectableEntities.push(node);
+      }
+    }
+  }
+
   get(uuid: string) {
-    return this.project.stage.find((node) => node.uuid === uuid);
+    this.ensureIndex();
+    return this.uuidIndex.get(uuid);
   }
 
   isEmpty(): boolean {
     return this.project.stage.length === 0;
   }
   getTextNodes(): TextNode[] {
-    return this.project.stage.filter((node) => node instanceof TextNode);
+    this.ensureIndex();
+    return this.textNodes;
   }
   getConnectableEntity(): ConnectableEntity[] {
-    return this.project.stage.filter((node) => {
-      if (node instanceof ConnectableEntity) {
-        // 排除背景图片
-        if (node instanceof ImageNode && (node as ImageNode).isBackground) {
-          return false;
-        }
-        return true;
-      }
-      return false;
-    }) as ConnectableEntity[];
+    this.ensureIndex();
+    return this.connectableEntities;
   }
   isEntityExists(uuid: string): boolean {
-    return this.project.stage.filter((node) => node.uuid === uuid).length > 0;
+    this.ensureIndex();
+    return this.uuidIndex.has(uuid);
   }
   getSections(): Section[] {
-    return this.project.stage.filter((node) => node instanceof Section);
+    this.ensureIndex();
+    return this.sections;
   }
   getImageNodes(): ImageNode[] {
-    return this.project.stage.filter((node) => node instanceof ImageNode);
+    this.ensureIndex();
+    return this.imageNodes;
   }
   getConnectPoints(): ConnectPoint[] {
-    return this.project.stage.filter((node) => node instanceof ConnectPoint);
+    this.ensureIndex();
+    return this.connectPoints;
   }
   getUrlNodes(): UrlNode[] {
-    return this.project.stage.filter((node) => node instanceof UrlNode);
+    this.ensureIndex();
+    return this.urlNodes;
   }
   // getPortalNodes(): PortalNode[] {
   //   return this.project.stage.filter((node) => node instanceof PortalNode);
   // }
   getPenStrokes(): PenStroke[] {
-    return this.project.stage.filter((node) => node instanceof PenStroke);
+    this.ensureIndex();
+    return this.penStrokes;
   }
   getSvgNodes(): SvgNode[] {
-    return this.project.stage.filter((node) => node instanceof SvgNode);
+    this.ensureIndex();
+    return this.svgNodes;
   }
   getLatexNodes(): LatexNode[] {
-    return this.project.stage.filter((node) => node instanceof LatexNode) as LatexNode[];
+    this.ensureIndex();
+    return this.latexNodes;
   }
 
   getStageObjects(): StageObject[] {
@@ -121,33 +193,47 @@ export class StageManager {
    * @returns
    */
   getEntities(): Entity[] {
-    return this.project.stage.filter((node) => node instanceof Entity);
+    this.ensureIndex();
+    return this.entities;
   }
   getEntitiesByUUIDs(uuids: string[]): Entity[] {
-    return this.project.stage.filter((node) => uuids.includes(node.uuid) && node instanceof Entity) as Entity[];
+    this.ensureIndex();
+    const uuidSet = new Set(uuids);
+    return this.entities.filter((node) => uuidSet.has(node.uuid));
   }
   isNoEntity(): boolean {
-    return this.project.stage.filter((node) => node instanceof Entity).length === 0;
+    this.ensureIndex();
+    return this.entities.length === 0;
   }
   delete(stageObject: StageObject) {
-    this.project.stage.splice(this.project.stage.indexOf(stageObject), 1);
+    const index = this.project.stage.indexOf(stageObject);
+    if (index === -1) return;
+    this.project.stage.splice(index, 1);
+    this.invalidateIndex();
+    this.project.markContentChanged();
   }
 
   getAssociations(): Association[] {
-    return this.project.stage.filter((node) => node instanceof Association);
+    this.ensureIndex();
+    return this.associations;
   }
   getEdges(): Edge[] {
-    return this.project.stage.filter((node) => node instanceof Edge);
+    this.ensureIndex();
+    return this.edges;
   }
   getLineEdges(): LineEdge[] {
-    return this.project.stage.filter((node) => node instanceof LineEdge);
+    this.ensureIndex();
+    return this.lineEdges;
   }
   getCrEdges(): CubicCatmullRomSplineEdge[] {
-    return this.project.stage.filter((node) => node instanceof CubicCatmullRomSplineEdge);
+    this.ensureIndex();
+    return this.crEdges;
   }
 
   add(stageObject: StageObject) {
     this.project.stage.push(stageObject);
+    this.invalidateIndex();
+    this.project.markContentChanged();
   }
 
   /**
@@ -158,6 +244,7 @@ export class StageManager {
    * 包含了对Edge几何组偏移索引的更新（多重边/双向边自动散开）
    */
   updateReferences() {
+    this.ensureIndex();
     for (const entity of this.getEntities()) {
       // 实体是可连接类型
       if (entity instanceof ConnectableEntity) {
@@ -181,10 +268,8 @@ export class StageManager {
       const newChildList = [];
 
       for (const child of section.children) {
-        if (this.project.stage.find((node) => node.uuid === child.uuid)) {
-          const childObject = this.project.stage.find(
-            (node) => node.uuid === child.uuid && node instanceof Entity,
-          ) as Entity;
+        const childObject = this.get(child.uuid);
+        if (childObject instanceof Entity) {
           if (childObject) {
             newChildList.push(childObject);
           }
@@ -243,6 +328,7 @@ export class StageManager {
         edges[i].shiftingIndex = idx;
       }
     }
+    this.invalidateIndex();
   }
 
   getTextNodeByUUID(uuid: string): TextNode | null {

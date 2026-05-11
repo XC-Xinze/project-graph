@@ -7,18 +7,30 @@ import { ViewOutlineFlashEffect } from "@/core/service/feedbackService/effectEng
  * 每一个对象都是一个具体的功能
  */
 export class ControllerClass {
+  private bindTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly handleKeydown = (event: KeyboardEvent) => this.keydown(event);
+  private readonly handleKeyup = (event: KeyboardEvent) => this.keyup(event);
+  private readonly handleMousedown = (event: PointerEvent) => this.mousedown(event);
+  private readonly handleMouseup = (event: PointerEvent) => this._mouseup(event);
+  private readonly handleMousemove = (event: PointerEvent) => this.mousemove(event);
+  private readonly handleMousewheel = (event: WheelEvent) => this.mousewheel(event);
+  private readonly handleTouchstart = (event: TouchEvent) => this._touchstart(event);
+  private readonly handleTouchmove = (event: TouchEvent) => this._touchmove(event);
+  private readonly handleTouchend = (event: TouchEvent) => this._touchend(event);
+
   constructor(protected readonly project: Project) {
     // 等一会再开始绑定
-    setTimeout(() => {
-      this.project.canvas.element.addEventListener("keydown", this.keydown.bind(this));
-      this.project.canvas.element.addEventListener("keyup", this.keyup.bind(this));
-      this.project.canvas.element.addEventListener("pointerdown", this.mousedown.bind(this));
-      this.project.canvas.element.addEventListener("pointerup", this._mouseup.bind(this));
-      this.project.canvas.element.addEventListener("pointermove", this.mousemove.bind(this));
-      this.project.canvas.element.addEventListener("wheel", this.mousewheel.bind(this));
-      this.project.canvas.element.addEventListener("touchstart", this._touchstart.bind(this));
-      this.project.canvas.element.addEventListener("touchmove", this._touchmove.bind(this));
-      this.project.canvas.element.addEventListener("touchend", this._touchend.bind(this));
+    this.bindTimer = setTimeout(() => {
+      this.project.canvas.element.addEventListener("keydown", this.handleKeydown);
+      this.project.canvas.element.addEventListener("keyup", this.handleKeyup);
+      this.project.canvas.element.addEventListener("pointerdown", this.handleMousedown);
+      this.project.canvas.element.addEventListener("pointerup", this.handleMouseup);
+      this.project.canvas.element.addEventListener("pointermove", this.handleMousemove);
+      this.project.canvas.element.addEventListener("wheel", this.handleMousewheel);
+      this.project.canvas.element.addEventListener("touchstart", this.handleTouchstart);
+      this.project.canvas.element.addEventListener("touchmove", this.handleTouchmove);
+      this.project.canvas.element.addEventListener("touchend", this.handleTouchend);
+      this.bindTimer = null;
     }, 10);
   }
 
@@ -38,15 +50,19 @@ export class ControllerClass {
   public touchend: (event: TouchEvent) => void = () => {};
 
   public dispose() {
-    this.project.canvas.element.removeEventListener("keydown", this.keydown.bind(this));
-    this.project.canvas.element.removeEventListener("keyup", this.keyup.bind(this));
-    this.project.canvas.element.removeEventListener("pointerdown", this.mousedown.bind(this));
-    this.project.canvas.element.removeEventListener("pointerup", this._mouseup.bind(this));
-    this.project.canvas.element.removeEventListener("pointermove", this.mousemove.bind(this));
-    this.project.canvas.element.removeEventListener("wheel", this.mousewheel.bind(this));
-    // this.project.canvas.element.removeEventListener("touchstart", this._touchstart.bind(this));
-    // this.project.canvas.element.removeEventListener("touchmove", this._touchmove.bind(this));
-    // this.project.canvas.element.removeEventListener("touchend", this._touchend.bind(this));
+    if (this.bindTimer) {
+      clearTimeout(this.bindTimer);
+      this.bindTimer = null;
+    }
+    this.project.canvas.element.removeEventListener("keydown", this.handleKeydown);
+    this.project.canvas.element.removeEventListener("keyup", this.handleKeyup);
+    this.project.canvas.element.removeEventListener("pointerdown", this.handleMousedown);
+    this.project.canvas.element.removeEventListener("pointerup", this.handleMouseup);
+    this.project.canvas.element.removeEventListener("pointermove", this.handleMousemove);
+    this.project.canvas.element.removeEventListener("wheel", this.handleMousewheel);
+    this.project.canvas.element.removeEventListener("touchstart", this.handleTouchstart);
+    this.project.canvas.element.removeEventListener("touchmove", this.handleTouchmove);
+    this.project.canvas.element.removeEventListener("touchend", this.handleTouchend);
 
     this.lastMoveLocation = Vector.getZero();
   }

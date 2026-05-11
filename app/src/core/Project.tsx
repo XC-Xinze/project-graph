@@ -134,7 +134,8 @@ export class Project extends Tab {
   private _uri: URI;
   private _projectState: ProjectState = ProjectState.Unsaved;
   private _isSaving = false;
-  public stage: StageObject[] = [];
+  private _stage: StageObject[] = [];
+  private _contentRevision = 0;
   public tags: string[] = [];
   /**
    * string：UUID
@@ -365,6 +366,24 @@ export class Project extends Tab {
     this.projectState = ProjectState.Unsaved;
   }
 
+  get stage(): StageObject[] {
+    return this._stage;
+  }
+
+  set stage(stage: StageObject[]) {
+    if (stage === this._stage) return;
+    this._stage = stage;
+    this.markContentChanged();
+  }
+
+  get contentRevision(): number {
+    return this._contentRevision;
+  }
+
+  markContentChanged() {
+    this._contentRevision++;
+  }
+
   /**
    * 将文件暂存到数据目录中（通常为~/.local/share）
    * ~/.local/share/liren.project-graph/stash/<normalizedUri>
@@ -447,6 +466,7 @@ export class Project extends Tab {
   addAttachment(data: Blob) {
     const uuid = crypto.randomUUID();
     this.attachments.set(uuid, data);
+    this.markContentChanged();
     return uuid;
   }
 

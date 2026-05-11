@@ -5,7 +5,6 @@ import { exists, writeFile, readDir, stat, remove, mkdir } from "@tauri-apps/plu
 import { Settings } from "@/core/service/Settings";
 import { toast } from "sonner";
 import { PathString } from "@/utils/pathString";
-import md5 from "md5";
 
 /**
  * 自动保存与备份系统
@@ -18,8 +17,7 @@ import md5 from "md5";
 export class AutoSaveBackupService {
   // 上次备份时间
   private lastBackupTime = 0;
-  // 上次备份内容的哈希值
-  private lastBackupHash = "";
+  private lastBackupRevision = -1;
 
   private lastSaveTime = 0;
   private isAutoBackupRunning = false;
@@ -78,11 +76,12 @@ export class AutoSaveBackupService {
     this.isAutoBackupRunning = true;
 
     try {
-      const fileContent = await this.project.getFileContent({ includeThumbnail: false });
-      const currentHash = md5(fileContent);
-      if (currentHash === this.lastBackupHash) {
+      const currentRevision = this.project.contentRevision;
+      if (currentRevision === this.lastBackupRevision) {
         return;
       }
+
+      const fileContent = await this.project.getFileContent({ includeThumbnail: false });
 
       const primaryCustomPath = Settings.autoBackupCustomPath?.trim() ?? "";
       const secondaryCustomPath = Settings.autoBackupCustomPath2?.trim() ?? "";
@@ -103,7 +102,7 @@ export class AutoSaveBackupService {
         }
         const ok = await this.tryBackupToDir(backupDir, fileContent);
         if (ok) {
-          this.lastBackupHash = currentHash;
+          this.lastBackupRevision = currentRevision;
           await this.manageBackupFiles(backupDir);
           return;
         }
