@@ -1,5 +1,6 @@
 import { Settings } from "@/core/service/Settings";
 import { ControllerClass } from "@/core/service/controlService/controller/ControllerClass";
+import { isMac } from "@/utils/platform";
 import { Vector } from "@graphif/data-structures";
 import { Rectangle } from "@graphif/shapes";
 
@@ -30,6 +31,9 @@ export class ControllerRectangleSelectClass extends ControllerClass {
   public mousedown: (event: MouseEvent) => void = (event) => {
     if (this.project.controller.pressingKeySet.has("alt")) {
       // layer moving mode
+      return;
+    }
+    if (isMac && !Settings.macEnableControlToCut && this.project.controller.pressingKeySet.has("control")) {
       return;
     }
     if (Settings.mouseLeftMode !== "selectAndMove") {

@@ -30,6 +30,9 @@ export class ControllerEntityClickSelectAndMoveClass extends ControllerClass {
     if (Settings.mouseLeftMode !== "selectAndMove") {
       return;
     }
+    if (isMac && !Settings.macEnableControlToCut && this.project.controller.pressingKeySet.has("control")) {
+      return;
+    }
     if (this.project.controller.camera.isPreGrabbingWhenSpace) {
       return;
     }
@@ -155,6 +158,7 @@ export class ControllerEntityClickSelectAndMoveClass extends ControllerClass {
     if (
       this.project.controller.rectangleSelect.isUsing ||
       this.project.controller.cutting.isUsing ||
+      this.project.controller.nodeConnection.isUsing ||
       this.project.controller.pressingKeySet.has("alt")
     ) {
       return;

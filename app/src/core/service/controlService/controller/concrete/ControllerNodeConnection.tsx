@@ -76,10 +76,20 @@ export class ControllerNodeConnectionClass extends ControllerClass {
    * 右键点击的位置，仅用于连接检测按下位置和抬起位置是否重叠
    */
   private _lastRightMousePressLocation: Vector = new Vector(0, 0);
+  private _pendingRightClickConnectionStartedAt = 0;
+  private _ignoreRightClickTapLocation: Vector | null = null;
+  private _ignoreRightClickTapUntil = 0;
+  private _isControlDragConnecting = false;
+  private _ignoreControlContextMenuLocation: Vector | null = null;
+  private _ignoreControlContextMenuUntil = 0;
 
   private _isUsing: boolean = false;
   public get isUsing(): boolean {
     return this._isUsing;
+  }
+
+  public get isControlDragConnecting(): boolean {
+    return this._isControlDragConnecting;
   }
 
   constructor(protected readonly project: Project) {
@@ -137,13 +147,25 @@ export class ControllerNodeConnectionClass extends ControllerClass {
     if (!(event.button === 2 || event.button === 0)) {
       return;
     }
+    if (this.isMacControlDragConnectEvent(event)) {
+      this.markIgnoreControlContextMenu(new Vector(event.clientX, event.clientY));
+      this.onMouseDown(event);
+      this._isControlDragConnecting = this.isConnecting();
+      return;
+    }
     if (event.button === 0 && Settings.mouseLeftMode === "connectAndCut") {
+      if (this.isConnecting() && this.finishPendingConnectionAtViewLocation(new Vector(event.clientX, event.clientY))) {
+        return;
+      }
       // 把鼠标左键切换为连线模式的情况
       this.onMouseDown(event);
     } else if (event.button === 0 && Settings.mouseLeftMode !== "connectAndCut") {
       // 右键拖拽连线的时候点击左键
       this.createConnectPointWhenConnect();
     } else if (event.button === 2) {
+      if (this.isConnecting()) {
+        return;
+      }
       // if (Stage.mouseRightDragBackground === "moveCamera") {
       //   return;
       // }
@@ -151,6 +173,28 @@ export class ControllerNodeConnectionClass extends ControllerClass {
       this.onMouseDown(event);
     }
   };
+
+  private isMacControlDragConnectEvent(event: MouseEvent): boolean {
+    return (
+      isMac &&
+      event.button === 0 &&
+      !Settings.macEnableControlToCut &&
+      this.project.controller.pressingKeySet.has("control")
+    );
+  }
+
+  public shouldIgnoreMacControlContextMenu(viewLocation: Vector): boolean {
+    return (
+      this._ignoreControlContextMenuLocation !== null &&
+      Date.now() < this._ignoreControlContextMenuUntil &&
+      this._ignoreControlContextMenuLocation.distance(viewLocation) < 8
+    );
+  }
+
+  private markIgnoreControlContextMenu(viewLocation: Vector) {
+    this._ignoreControlContextMenuLocation = viewLocation.clone();
+    this._ignoreControlContextMenuUntil = Date.now() + 800;
+  }
 
   // 记录拖拽起始点在图片上的精确位置
   private _startImageLocation: Map<string, Vector> = new Map();
@@ -262,8 +306,101 @@ export class ControllerNodeConnectionClass extends ControllerClass {
     // 播放音效
     SoundService.play.connectLineStart();
     this._isUsing = true;
+    this._pendingRightClickConnectionStartedAt = Date.now();
     this.project.controller.setCursorNameHook(CursorNameEnum.Crosshair);
     this.updatePreviewDirections();
+  }
+
+  public handleRightClickTap(viewLocation: Vector): boolean {
+    if (
+      this._ignoreRightClickTapLocation &&
+      Date.now() < this._ignoreRightClickTapUntil &&
+      this._ignoreRightClickTapLocation.distance(viewLocation) < 5
+    ) {
+      return true;
+    }
+
+    const worldLocation = this.project.renderer.transformView2World(viewLocation);
+    const clickedConnectableEntity = this.project.stageManager.findConnectableEntityByLocation(worldLocation);
+    const selectedEntities = this.project.stageManager.getConnectableEntity().filter((entity) => entity.isSelected);
+
+    if (
+      Settings.enableRightClickConnect &&
+      selectedEntities.length > 0 &&
+      clickedConnectableEntity !== null &&
+      !clickedConnectableEntity.isSelected
+    ) {
+      this.connectFromEntities = selectedEntities;
+      this.connectToEntity = clickedConnectableEntity;
+      this.dragMultiConnect(clickedConnectableEntity);
+      this.finishConnection();
+      return true;
+    }
+
+    if (this.isConnecting() && Settings.mouseLeftMode !== "connectAndCut") {
+      this.finishConnection();
+      return false;
+    }
+
+    if (!this.isConnecting()) {
+      if (Settings.mouseLeftMode !== "connectAndCut" || clickedConnectableEntity === null) {
+        return false;
+      }
+      this.onMouseDown(
+        new MouseEvent("mousedown", {
+          button: 2,
+          clientX: viewLocation.x,
+          clientY: viewLocation.y,
+        }),
+      );
+      return this.isConnecting();
+    }
+
+    if (clickedConnectableEntity === null) {
+      this.finishConnection();
+      return true;
+    }
+
+    if (this.connectFromEntities.includes(clickedConnectableEntity)) {
+      if (Date.now() - this._pendingRightClickConnectionStartedAt > 1000) {
+        this.finishConnection();
+      }
+      return true;
+    }
+
+    this.connectPendingConnectionTo(clickedConnectableEntity, worldLocation);
+    return true;
+  }
+
+  private finishPendingConnectionAtViewLocation(viewLocation: Vector): boolean {
+    const worldLocation = this.project.renderer.transformView2World(viewLocation);
+    const clickedConnectableEntity = this.project.stageManager.findConnectableEntityByLocation(worldLocation);
+
+    if (clickedConnectableEntity === null) {
+      this.finishConnection();
+      return true;
+    }
+
+    if (this.connectFromEntities.includes(clickedConnectableEntity)) {
+      return false;
+    }
+
+    this.connectPendingConnectionTo(clickedConnectableEntity, worldLocation);
+    return true;
+  }
+
+  private connectPendingConnectionTo(connectToEntity: ConnectableEntity, worldLocation: Vector) {
+    this._endImageLocation = null;
+    if (connectToEntity instanceof ImageNode || connectToEntity.constructor.name === "ReferenceBlockNode") {
+      const rect = connectToEntity.collisionBox.getRectangle();
+      const relativeX = (worldLocation.x - rect.location.x) / rect.size.x;
+      const relativeY = (worldLocation.y - rect.location.y) / rect.size.y;
+      this._endImageLocation = new Vector(relativeX, relativeY);
+    }
+
+    this.connectToEntity = connectToEntity;
+    this.dragMultiConnect(connectToEntity);
+    this.finishConnection();
   }
 
   /**
@@ -278,7 +415,10 @@ export class ControllerNodeConnectionClass extends ControllerClass {
     if (!this._isUsing) {
       return;
     }
-    if (this.project.controller.isMouseDown[0] && Settings.mouseLeftMode === "connectAndCut") {
+    if (
+      this.project.controller.isMouseDown[0] &&
+      (Settings.mouseLeftMode === "connectAndCut" || this._isControlDragConnecting)
+    ) {
       this.mouseMove(event);
     }
     if (this.project.controller.isMouseDown[2]) {
@@ -337,7 +477,7 @@ export class ControllerNodeConnectionClass extends ControllerClass {
     if (!this.isConnecting()) {
       return;
     }
-    if (event.button === 0 && Settings.mouseLeftMode === "connectAndCut") {
+    if (event.button === 0 && (Settings.mouseLeftMode === "connectAndCut" || this._isControlDragConnecting)) {
       this.mouseUp(event);
     } else if (event.button === 2) {
       this.mouseUp(event);
@@ -350,8 +490,11 @@ export class ControllerNodeConnectionClass extends ControllerClass {
 
     // 检查释放的实体是否是背景图片
     if (releaseTargetEntity instanceof ImageNode && (releaseTargetEntity as ImageNode).isBackground) {
-      this.clear();
-      this.project.controller.setCursorNameHook(CursorNameEnum.Default);
+      this.finishConnection(
+        (event.button === 2 && Settings.mouseLeftMode === "connectAndCut") || this._isControlDragConnecting
+          ? new Vector(event.clientX, event.clientY)
+          : undefined,
+      );
       return;
     }
 
@@ -376,6 +519,13 @@ export class ControllerNodeConnectionClass extends ControllerClass {
     if (Settings.autoAdjustLineEndpointsByMouseTrack) {
       [sourceDirection, targetDirection] = this.getConnectDirectionByMouseTrack();
     }
+
+    const isRightClickOnSourceInConnectMode =
+      event.button === 2 &&
+      Settings.mouseLeftMode === "connectAndCut" &&
+      releaseTargetEntity !== null &&
+      this.connectFromEntities.includes(releaseTargetEntity) &&
+      releaseWorldLocation.distance(this._lastRightMousePressLocation) < 5;
 
     // 结束连线
     if (releaseTargetEntity !== null) {
@@ -424,8 +574,14 @@ export class ControllerNodeConnectionClass extends ControllerClass {
         }
       });
     }
-    this.clear();
-    this.project.controller.setCursorNameHook(CursorNameEnum.Default);
+    if (isRightClickOnSourceInConnectMode) {
+      return;
+    }
+    this.finishConnection(
+      (event.button === 2 && Settings.mouseLeftMode === "connectAndCut") || this._isControlDragConnecting
+        ? new Vector(event.clientX, event.clientY)
+        : undefined,
+    );
   }
 
   /**
@@ -584,6 +740,21 @@ export class ControllerNodeConnectionClass extends ControllerClass {
     this._previewTargetDirection = null;
     this._hasSourceSparkTriggered = false;
     this._hasTargetSparkTriggered = false;
+    this._pendingRightClickConnectionStartedAt = 0;
+    this._isControlDragConnecting = false;
+  }
+
+  private finishConnection(ignoreRightClickTapLocation?: Vector) {
+    const shouldIgnoreControlContextMenu = this._isControlDragConnecting;
+    this.clear();
+    if (ignoreRightClickTapLocation) {
+      this._ignoreRightClickTapLocation = ignoreRightClickTapLocation.clone();
+      this._ignoreRightClickTapUntil = Date.now() + 250;
+      if (shouldIgnoreControlContextMenu) {
+        this.markIgnoreControlContextMenu(ignoreRightClickTapLocation);
+      }
+    }
+    this.project.controller.setCursorNameHook(CursorNameEnum.Default);
   }
 
   private updatePreviewDirections() {

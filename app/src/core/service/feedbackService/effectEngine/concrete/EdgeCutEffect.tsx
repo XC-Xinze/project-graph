@@ -19,14 +19,18 @@ export class EdgeCutEffect extends Effect {
   }
 
   static default(start: Vector, end: Vector, color: Color, width: number) {
-    return new EdgeCutEffect(new ProgressNumber(0, 300), 0, start, end, color, width);
+    return new EdgeCutEffect(new ProgressNumber(0, 30), 0, start.clone(), end.clone(), color, width);
   }
 
   render(project: Project) {
+    if (!this.isFiniteVector(this.start) || !this.isFiniteVector(this.end) || !Number.isFinite(this.width)) {
+      return;
+    }
+
     const midPoint = new Vector((this.start.x + this.end.x) / 2, (this.start.y + this.end.y) / 2);
 
     // 计算动画进度 (0-1)
-    const progress = easeOutQuint(this.timeProgress.rate); // 30帧完成动画
+    const progress = easeOutQuint(this.timeProgress.rate);
 
     // 计算两端缩短后的位置
     const leftEnd = new Vector(
@@ -52,5 +56,9 @@ export class EdgeCutEffect extends Effect {
       this.color.toNewAlpha(1 - progress),
       this.width * project.camera.currentScale,
     );
+  }
+
+  private isFiniteVector(vector: Vector): boolean {
+    return Number.isFinite(vector.x) && Number.isFinite(vector.y);
   }
 }

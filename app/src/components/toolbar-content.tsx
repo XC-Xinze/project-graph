@@ -21,8 +21,12 @@ export default function ToolbarContent() {
 
   const [leftMouseMode, setLeftMouseMode] = useState(Settings.mouseLeftMode);
   useEffect(() => {
-    setLeftMouseMode(Settings.mouseLeftMode);
-  }, [Settings.mouseLeftMode]);
+    return Settings.watch("mouseLeftMode", setLeftMouseMode);
+  }, []);
+
+  const switchLeftMouseMode = (mode: typeof Settings.mouseLeftMode) => {
+    Settings.mouseLeftMode = mode;
+  };
 
   return (
     <div
@@ -39,8 +43,7 @@ export default function ToolbarContent() {
               variant="ghost"
               size="icon"
               onClick={() => {
-                setLeftMouseMode("connectAndCut");
-                Settings.mouseLeftMode = "selectAndMove";
+                switchLeftMouseMode("selectAndMove");
               }}
             >
               <MousePointer />
@@ -56,8 +59,7 @@ export default function ToolbarContent() {
               variant="ghost"
               size="icon"
               onClick={() => {
-                setLeftMouseMode("draw");
-                Settings.mouseLeftMode = "draw";
+                switchLeftMouseMode("draw");
               }}
             >
               <Pencil />
@@ -73,8 +75,7 @@ export default function ToolbarContent() {
               variant="ghost"
               size="icon"
               onClick={() => {
-                setLeftMouseMode("connectAndCut");
-                Settings.mouseLeftMode = "connectAndCut";
+                switchLeftMouseMode("connectAndCut");
               }}
             >
               <Waypoints />

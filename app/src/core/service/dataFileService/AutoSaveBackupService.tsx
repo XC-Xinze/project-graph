@@ -5,6 +5,7 @@ import { exists, writeFile, readDir, stat, remove, mkdir } from "@tauri-apps/plu
 import { Settings } from "@/core/service/Settings";
 import { toast } from "sonner";
 import { PathString } from "@/utils/pathString";
+import md5 from "md5";
 
 /**
  * 自动保存与备份系统
@@ -21,6 +22,8 @@ export class AutoSaveBackupService {
   private lastBackupHash = "";
 
   private lastSaveTime = 0;
+  private isAutoBackupRunning = false;
+  private isAutoSaveRunning = false;
 
   constructor(private readonly project: Project) {
     this.lastBackupTime = Date.now();
@@ -36,24 +39,32 @@ export class AutoSaveBackupService {
     if (Settings.autoBackup) {
       if (now - this.lastBackupTime >= Settings.autoBackupInterval * 1000) {
         this.lastBackupTime = now;
-        this.autoBackup();
+        void this.autoBackup();
       }
     }
     if (Settings.autoSave) {
       if (now - this.lastSaveTime >= Settings.autoSaveInterval * 1000) {
         this.lastSaveTime = now;
-        this.autoSave();
+        void this.autoSave();
       }
     }
   }
 
   private async autoSave() {
+    if (this.isAutoSaveRunning) {
+      return;
+    }
     if (!this.project.uri || this.project.isDraft) {
       // 临时草稿先不备份
       return;
     }
     if (this.project.projectState === ProjectState.Unsaved) {
-      this.project.save();
+      this.isAutoSaveRunning = true;
+      try {
+        await this.project.save();
+      } finally {
+        this.isAutoSaveRunning = false;
+      }
     }
   }
 
@@ -61,37 +72,47 @@ export class AutoSaveBackupService {
    * 执行自动备份操作
    */
   private async autoBackup() {
-    const currentHash = this.project.stageHash;
-    if (currentHash === this.lastBackupHash) {
+    if (this.isAutoBackupRunning) {
       return;
     }
+    this.isAutoBackupRunning = true;
 
-    const primaryCustomPath = Settings.autoBackupCustomPath?.trim() ?? "";
-    const secondaryCustomPath = Settings.autoBackupCustomPath2?.trim() ?? "";
-
-    const candidates: Array<{ kind: "custom"; path: string } | { kind: "default" }> = [];
-    if (primaryCustomPath) {
-      candidates.push({ kind: "custom", path: primaryCustomPath });
-    }
-    if (secondaryCustomPath && secondaryCustomPath !== primaryCustomPath) {
-      candidates.push({ kind: "custom", path: secondaryCustomPath });
-    }
-    candidates.push({ kind: "default" });
-
-    for (const candidate of candidates) {
-      const backupDir = await this.resolveAutoBackupDir(candidate);
-      if (!backupDir) {
-        continue;
-      }
-      const ok = await this.tryBackupToDir(backupDir);
-      if (ok) {
-        this.lastBackupHash = currentHash;
-        await this.manageBackupFiles(backupDir);
+    try {
+      const fileContent = await this.project.getFileContent({ includeThumbnail: false });
+      const currentHash = md5(fileContent);
+      if (currentHash === this.lastBackupHash) {
         return;
       }
-    }
 
-    toast.error("自动备份失败：所有备份路径均不可用");
+      const primaryCustomPath = Settings.autoBackupCustomPath?.trim() ?? "";
+      const secondaryCustomPath = Settings.autoBackupCustomPath2?.trim() ?? "";
+
+      const candidates: Array<{ kind: "custom"; path: string } | { kind: "default" }> = [];
+      if (primaryCustomPath) {
+        candidates.push({ kind: "custom", path: primaryCustomPath });
+      }
+      if (secondaryCustomPath && secondaryCustomPath !== primaryCustomPath) {
+        candidates.push({ kind: "custom", path: secondaryCustomPath });
+      }
+      candidates.push({ kind: "default" });
+
+      for (const candidate of candidates) {
+        const backupDir = await this.resolveAutoBackupDir(candidate);
+        if (!backupDir) {
+          continue;
+        }
+        const ok = await this.tryBackupToDir(backupDir, fileContent);
+        if (ok) {
+          this.lastBackupHash = currentHash;
+          await this.manageBackupFiles(backupDir);
+          return;
+        }
+      }
+
+      toast.error("自动备份失败：所有备份路径均不可用");
+    } finally {
+      this.isAutoBackupRunning = false;
+    }
   }
 
   public async manualBackup() {
@@ -117,15 +138,16 @@ export class AutoSaveBackupService {
     }
   }
 
-  private async tryBackupToDir(backupDir: string): Promise<boolean> {
+  private async tryBackupToDir(backupDir: string, fileContent?: Uint8Array): Promise<boolean> {
     try {
-      return await this.backupCurrentProject(backupDir);
-    } catch {
+      return await this.backupCurrentProject(backupDir, fileContent);
+    } catch (err) {
+      toast.error(`备份到 ${backupDir} 失败: ${err}`);
       return false;
     }
   }
 
-  private async backupCurrentProject(backupDir: string): Promise<boolean> {
+  private async backupCurrentProject(backupDir: string, fileContent?: Uint8Array): Promise<boolean> {
     // 确保备份目录存在
     if (!(await exists(backupDir))) {
       try {
@@ -142,7 +164,7 @@ export class AutoSaveBackupService {
     const backupFilePath = await join(backupDir, fileName);
 
     // 创建备份文件
-    await this.createBackupFile(backupFilePath);
+    await this.createBackupFile(backupFilePath, fileContent);
     return true;
   }
 
@@ -178,13 +200,13 @@ export class AutoSaveBackupService {
   /**
    * 创建备份文件
    */
-  private async createBackupFile(backupFilePath: string): Promise<void> {
+  private async createBackupFile(backupFilePath: string, fileContent?: Uint8Array): Promise<void> {
     try {
       // 复制项目保存逻辑，但写入到备份文件路径
-      const fileContent = await this.project.getFileContent();
+      const content = fileContent ?? (await this.project.getFileContent());
 
       // 写入备份文件
-      await writeFile(backupFilePath, fileContent);
+      await writeFile(backupFilePath, content);
       toast.success(`备份成功：${backupFilePath}`);
     } catch (err) {
       toast.error("创建备份文件失败:" + err);

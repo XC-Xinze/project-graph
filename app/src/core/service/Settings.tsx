@@ -532,7 +532,7 @@ export const Settings = new Proxy<
             return [
               value,
               (newValue: Settings[T]) => {
-                console.log(newValue);
+                (target as Settings)[key] = newValue;
                 store.set(key, newValue);
                 listeners[key]?.forEach((cb) => cb(newValue));
               },

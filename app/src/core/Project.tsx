@@ -113,6 +113,11 @@ export enum ProjectState {
   Unsaved,
 }
 
+type ProjectFileContentOptions = {
+  includeThumbnail?: boolean;
+  encodedStage?: Uint8Array;
+};
+
 /**
  * “工程”
  * 一个标签页对应一个工程，一个工程只能对应一个URI
@@ -390,9 +395,9 @@ export class Project extends Tab {
   public readme?: string;
 
   // 备份也要用到这个
-  async getFileContent() {
-    const serializedStage = serialize(this.stage);
-    const encodedStage = this.encoder.encode(serializedStage);
+  async getFileContent(options: ProjectFileContentOptions = {}) {
+    const includeThumbnail = options.includeThumbnail ?? true;
+    const encodedStage = options.encodedStage ?? this.encoder.encode(serialize(this.stage));
     const uwriter = new Uint8ArrayWriter();
 
     const writer = new ZipWriter(uwriter); // zip writer用于把zip文件写入uint8array writer
@@ -407,14 +412,15 @@ export class Project extends Tab {
     for (const [uuid, attachment] of this.attachments.entries()) {
       writer.add(`attachments/${uuid}.${mime.getExtension(attachment.type)}`, new BlobReader(attachment));
     }
-    // 添加缩略图
-    try {
-      const thumbnailBlob = await generateThumbnail(this);
-      if (thumbnailBlob) {
-        writer.add("thumbnail.png", new BlobReader(thumbnailBlob));
+    if (includeThumbnail) {
+      try {
+        const thumbnailBlob = await generateThumbnail(this);
+        if (thumbnailBlob) {
+          writer.add("thumbnail.png", new BlobReader(thumbnailBlob));
+        }
+      } catch {
+        // 缩略图生成失败不阻止保存
       }
-    } catch {
-      // 缩略图生成失败不阻止保存
     }
     await writer.close();
 
